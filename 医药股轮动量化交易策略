@@ -1,0 +1,67 @@
+# 导入函数库
+import jqdata
+
+
+# 初始化函数
+def initialize(context):
+  # 设定基准
+  set_benchmark('000931.XSHG')
+  # True为开启动态复权模式，使用真实价格交易
+  set_option('use_real_price',True)
+  # 设定成交量比例
+  set_option('order_volume_ratio',1)
+  '''
+   set_order_cost()是用来设置佣金/印花税的函数，用来设定每笔交易收取的手续费
+   第一个参数是OrderCost对象，各项子参数意义如下：
+   open_tax，买入时印花税（只有股票类标的收取，基金与期货不收）
+   close_tax，卖出时印花税（只有股票类标的收取，基金与期货不收）
+   open_commission，买入时佣金
+   close_commission，卖出时佣金
+   close_today_commission，平今仓佣金
+   min_commission，最低佣金，不包含印花税
+   第二个参数type是类型，'stock'代表股票
+   '''
+  set_order_cost(OrderCost(open_tax=0,close_tax=0.001,open_commission=0.0003,close_commission=0.0003,close_today_commission=0,min_commission=5),type='stock')
+  # 运行函数，按周运行，在每周第一个交易日运行
+  run_weekly(check_stocks, weekday=1, time='before_open') # 选股
+  run_weekly(trade, weekday=1, time='open') # 交易
+
+
+# 选股函数
+def check_stocks(context):
+  # 得到医药指数成分股
+  g.stocks = get_index_stocks('000931.XSHG')
+  if len(g.stocks) > 0:
+    # 创建查询对象
+    q = query(
+      valuation.code,
+      valuation.pb_ratio
+     ).filter(
+      valuation.code.in_(g.stocks)
+     ).order_by(
+      # 按照市净率升序排序
+      valuation.pb_ratio.asc()
+     )
+    # 查询符合条件的股票，并存储到全局变量中
+    g.df = get_fundamentals(q)
+    # 找出市净率最低的一只股票
+    g.code = g.df['code'][0]
+    
+    
+    
+# 交易函数
+def trade(context):
+  if len(g.stocks) > 0:
+    # 取出市净率最低的那只股票
+    code = g.code 
+    # 如果持仓股票不是最低市净率的股票，则卖出
+    for stock in context.portfolio.positions.keys():
+      if stock != code:
+        order_target(stock,0)
+    
+    # 如果还有剩余仓位，则直接结束该方法的调用
+    if len(context.portfolio.positions) > 0:
+      return
+    else:
+      # 使用现金买入市净率最低的那只股票
+      order_value(code,context.portfolio.cash)
