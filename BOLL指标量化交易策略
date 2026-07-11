@@ -1,0 +1,99 @@
+ # 导入函数库
+import jqdata
+from jqlib.technical_analysis import *
+
+
+# 初始化函数
+def initialize(context):
+  # 设定沪深300作为基准
+  set_benchmark('000300.XSHG')
+  # 开启动态复权模式（真实价格）
+  set_option('use_real_price',True)
+  # 输出日志
+  log.info('初始化函数开始运行且全局只运行一次')
+  '''
+   set_order_cost()是用来设置佣金/印花税的函数，用来设定每笔交易收取的手续费
+   第一个参数是OrderCost对象，各项子参数意义如下：
+   open_tax，买入时印花税（只有股票类标的收取，基金与期货不收）
+   close_tax，卖出时印花税（只有股票类标的收取，基金与期货不收）
+   open_commission，买入时佣金
+   close_commission，卖出时佣金
+   close_today_commission，平今仓佣金
+   min_commission，最低佣金，不包含印花税
+   第二个参数type是类型，'stock'代表股票
+   '''
+  set_order_cost(OrderCost(close_tax=0.001,open_commission=0.0003,close_commission=0.0003,min_commission=5),type='stock')
+  # 绑定函数与执行时机，参数reference_security用来设置运行时间的参考标的
+  # 开盘前运行
+  run_daily(before_market_open,time='before_open',reference_security='000300.XSHG')
+  # 绑定函数与执行时机，参数reference_security用来设置运行时间的参考标的
+  # 开盘时运行
+  run_daily(market_open,time='open',reference_security='000300.XSHG')
+  # 绑定函数与执行时机，参数reference_security用来设置运行时间的参考标的
+  # 收盘后运行
+  run_daily(after_market_close,time='after_close',reference_security='000300.XSHG')
+  
+
+
+
+
+
+
+# 开盘前运行函数
+def before_market_open(context):
+  # 输出运行时间
+  log.info('函数运行时间(before_market_open):'+str(context.current_dt.time()))
+  # 给投资人发送消息
+  send_message('美好的一天~')
+  # 将要操作的股票保存到全局变量中
+  # 股票'000538.XSHE'是云南白药
+  g.security = '000538.XSHE'
+  
+  
+# 收盘后运行函数
+def after_market_close(context):
+  # 输出运行时间
+  log.info('函数运行时间(after_market_close):'+str(context.current_dt.time()))
+  # 得到当天所有成交记录
+  trades = get_trades()
+  for _trade in trades.values():
+    log.info('成交记录：'+str(_trade))
+  log.info('一天结束')
+  
+  
+  
+# 开盘时运行函数
+def market_open(context):
+  # 输出运行时间
+  log.info('函数运行时间(market_open):'+str(context.current_dt.time()))
+  security = g.security
+  # 设定均线
+  n1 = 5
+  n2 = 10
+  n3 = 30
+  # 获取股票的历史收盘价
+  close_data = attribute_history(security,n3+2,'1d',['close'],df=False)
+  # 获取过去n1天的平均股价
+  ma_n1 = close_data['close'][-n1:].mean()
+  # 获取过去n2天的平均股价
+  ma_n2 = close_data['close'][-n2:].mean()
+  # 获取过去n3天的平均股价
+  ma_n3 = close_data['close'][-n3:].mean()
+  # 取得上一时间点股价
+  current_price = close_data['close'][-1]
+  # 获得BOLL指标的上轨值、中轨值和下轨值
+  upperband,middleband,lowerband = Bollinger_Bands(security,check_date=context.current_dt,timeperiod=20,nbdevup=2,nbdevdn=2)
+  # 取得当前的现金
+  cash = context.portfolio.available_cash
+  # 当5日股价均值大于10日股价均值，10日股价均值大于30日股价均值，同时，收盘价格高于BOLL的中轨值
+  if ma_n1 > ma_n2 and ma_n2 > ma_n3 and current_price > middleband[security]:
+    # 记录这次买入
+    log.info('买入%s'%(security))
+    # 用所有cash买入股票
+    order_value(security,cash)
+  # 当5日股价均值小于10日股价均值，10日股价均值小于30日股价均值，同时，收盘价格高于BOLL的上轨值，并且该股票还有剩余仓位
+  elif ma_n1 < ma_n2 and ma_n2 < ma_n3 and current_price > upperband[security] and context.portfolio.positions[security].closeable_amount > 0:
+    # 记录这次卖出
+    log.info('卖出%s'%(security))
+    # 卖出所有股票，使这只股票的最终持有量为0
+    order_target(security,0)
