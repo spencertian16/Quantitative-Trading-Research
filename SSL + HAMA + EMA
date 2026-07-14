@@ -1,0 +1,77 @@
+//@version=5
+strategy("Combined SSL + HAMA + EMA Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ==========================================
+// 1. SSL CHANNEL CALCULATIONS
+// ==========================================
+// Based on your provided parameters: Length 200, SMA
+ssl_len = input.int(200, title="SSL Length")
+ma_high = ta.sma(high, ssl_len)
+ma_low = ta.sma(low, ssl_len)
+
+// Determine which line is currently the "Top" and "Bottom" of the channel
+// In SSL logic, if Close > High MA, the channel flips up.
+var int sslDir = 0
+sslDir := close > ma_high ? 1 : close < ma_low ? -1 : sslDir[1]
+
+sslLineUp = sslDir < 0 ? ma_low : ma_high
+sslLineDown = sslDir < 0 ? ma_high : ma_low
+
+plot(sslLineUp, color=color.green, title="SSL Upper")
+plot(sslLineDown, color=color.red, title="SSL Lower")
+
+// ==========================================
+// 2. EMA LINE CALCULATIONS (From HAMA Script)
+// ==========================================
+// Based on your provided parameters: Length 55, EMA
+ema_len = input.int(55, title="EMA Line Length")
+emaLine = ta.ema(close, ema_len)
+
+plot(emaLine, color=color.yellow, linewidth=2, title="55 EMA Line")
+
+// ==========================================
+// 3. HAMA CANDLE CALCULATIONS
+// ==========================================
+// Based on your provided parameters: Open(25), High(20), Low(20), Close(20) - All EMA
+hama_open_len = 25
+hama_other_len = 20
+
+// We calculate the source data exactly as the script does
+src_open = (open[1] + close[1]) / 2
+src_high = math.max(high, close)
+src_low = math.min(low, close)
+src_close = (open + high + low + close) / 4
+
+// Calculate the HAMA smoothed values
+hamaOpen = ta.ema(src_open, hama_open_len)
+hamaHigh = ta.ema(src_high, hama_other_len)
+hamaLow = ta.ema(src_low, hama_other_len)
+hamaClose = ta.ema(src_close, hama_other_len)
+
+// Plot HAMA Body for visual reference (Simplified)
+hamaColor = hamaOpen < hamaClose ? color.green : color.red
+plotcandle(hamaOpen, hamaHigh, hamaLow, hamaClose, color=hamaColor, title="HAMA Candles", wickcolor=hamaColor, bordercolor=hamaColor)
+
+// ==========================================
+// 4. TRADING LOGIC (STRICT)
+// ==========================================
+
+// BUY CONDITION: Price must be HIGHER than ALL three indicators
+// We use 'close' to represent the current price
+buyCondition = (close > sslLineUp) and (close > emaLine) and (close > hamaHigh)
+
+// SELL CONDITION: Price is LOWER than ANY ONE of the indicators
+// As soon as one support breaks, we exit.
+sellCondition = (close < sslLineDown) or (close < emaLine) or (close < hamaLow)
+
+// ==========================================
+// 5. EXECUTION
+// ==========================================
+
+// Only Enter Long
+if (buyCondition)
+strategy.entry("Long Buy", strategy.long, comment="All Align")
+
+// Exit Long
+if (sellCondition)
+strategy.close("Long Buy", comment="Broken Support")
